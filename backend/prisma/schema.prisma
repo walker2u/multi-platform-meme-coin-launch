@@ -1,0 +1,129 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum LaunchStatus {
+  PENDING
+  QUOTE_GENERATED
+  INTENT_VERIFIED
+  QUEUED
+  BUILDING_TRANSACTION
+  SUBMITTED
+  CONFIRMED
+  FAILED
+}
+
+enum RelayerStatus {
+  QUEUED
+  BROADCASTING
+  SUBMITTED
+  MINED
+  FAILED
+  REPLACED
+}
+
+enum ChainType {
+  EVM
+  SOLANA
+}
+
+model User {
+  id             String          @id @default(uuid())
+  walletAddress  String          @unique
+  chainType      ChainType       @default(EVM)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  launchRequests LaunchRequest[]
+  quotes         Quote[]
+
+  @@index([walletAddress])
+}
+
+model Quote {
+  id             String         @id @default(uuid())
+  userId         String
+  user           User           @relation(fields: [userId], references: [id])
+  targetChain    String
+  targetPlatform String
+  baseFeeAmount  String
+  gasFeeEst      String
+  devBuyAmount   String
+  markupAmount   String
+  totalAmount    String
+  currency       String
+  expiresAt      DateTime
+  createdAt      DateTime       @default(now())
+  launchRequest  LaunchRequest?
+
+  @@index([userId])
+}
+
+model LaunchRequest {
+  id             String          @id @default(uuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id])
+  quoteId        String?         @unique
+  quote          Quote?          @relation(fields: [quoteId], references: [id])
+  targetChain    String          // BASE, SOLANA, BNB, ROBINHOOD
+  targetPlatform String          // FOUR_MEME, PONS, GENIUS, PUMP_FUN, STONK_FUN
+  tokenName      String
+  tokenSymbol    String
+  tokenDecimals  Int             @default(18)
+  totalSupply    String
+  metadataUri    String          // IPFS URI
+  devBuyAmount   String?
+  intentSignature String?
+  status         LaunchStatus    @default(PENDING)
+  deployedToken  DeployedToken?
+  relayerTxs     RelayerTx[]
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+model DeployedToken {
+  id              String        @id @default(uuid())
+  launchRequestId String        @unique
+  launchRequest   LaunchRequest @relation(fields: [launchRequestId], references: [id])
+  chain           String
+  platform        String
+  contractAddress String
+  creatorAddress  String
+  transactionHash String
+  blockNumber     BigInt?
+  dexPoolAddress  String?
+  createdAt       DateTime      @default(now())
+
+  @@index([contractAddress])
+  @@index([chain])
+}
+
+model RelayerTx {
+  id              String        @id @default(uuid())
+  launchRequestId String
+  launchRequest   LaunchRequest @relation(fields: [launchRequestId], references: [id])
+  chain           String
+  nonce           Int?
+  txHash          String?       @unique
+  rawPayload      String?       @db.Text
+  gasPriceGwei    String?
+  priorityFeeLamports BigInt?
+  status          RelayerStatus @default(QUEUED)
+  retries         Int           @default(0)
+  errorReason     String?
+  broadcastAt     DateTime?
+  minedAt         DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([launchRequestId])
+  @@index([status])
+}

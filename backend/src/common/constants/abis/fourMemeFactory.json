@@ -1,0 +1,28 @@
+[
+  {
+    "type": "function",
+    "name": "createToken",
+    "inputs": [
+      { "name": "name", "type": "string" },
+      { "name": "symbol", "type": "string" },
+      { "name": "description", "type": "string" },
+      { "name": "metadataUri", "type": "string" },
+      { "name": "initialBuyAmount", "type": "uint256" }
+    ],
+    "outputs": [{ "name": "tokenAddress", "type": "address" }],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "TokenCreated",
+    "inputs": [
+      { "name": "token", "type": "address", "indexed": true },
+      { "name": "creator", "type": "address", "indexed": true },
+      { "name": "name", "type": "string", "indexed": false },
+      { "name": "symbol", "type": "string", "indexed": false },
+      { "name": "metadataUri", "type": "string", "indexed": false },
+      { "name": "initialBuy", "type": "uint256", "indexed": false }
+    ],
+    "anonymous": false
+  }
+]

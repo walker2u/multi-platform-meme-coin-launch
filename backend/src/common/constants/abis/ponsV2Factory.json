@@ -1,0 +1,26 @@
+[
+  {
+    "type": "function",
+    "name": "createToken",
+    "inputs": [
+      { "name": "_name", "type": "string" },
+      { "name": "_symbol", "type": "string" },
+      { "name": "_uri", "type": "string" },
+      { "name": "_virtualEthLiquidity", "type": "uint256" }
+    ],
+    "outputs": [{ "name": "token", "type": "address" }],
+    "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "TokenCreated",
+    "inputs": [
+      { "name": "token", "type": "address", "indexed": true },
+      { "name": "creator", "type": "address", "indexed": true },
+      { "name": "name", "type": "string", "indexed": false },
+      { "name": "symbol", "type": "string", "indexed": false },
+      { "name": "uri", "type": "string", "indexed": false }
+    ],
+    "anonymous": false
+  }
+]
