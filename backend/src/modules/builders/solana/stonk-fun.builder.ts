@@ -33,13 +33,20 @@ export class StonkFunBuilder {
     const symbolBuf = Buffer.from(params.symbol);
     const uriBuf = Buffer.from(params.uri);
 
+    // Helper function to safely encode u32 lengths for Solana (Borsh LE)
+    const encodeLength = (len: number) => {
+      const buf = Buffer.alloc(4);
+      buf.writeUInt32LE(len, 0);
+      return buf;
+    };
+
     const data = Buffer.concat([
       Buffer.from([0x18]), // instruction index
-      Buffer.from(new Uint32Array([nameBuf.length]).buffer),
+      encodeLength(nameBuf.length),
       nameBuf,
-      Buffer.from(new Uint32Array([symbolBuf.length]).buffer),
+      encodeLength(symbolBuf.length),
       symbolBuf,
-      Buffer.from(new Uint32Array([uriBuf.length]).buffer),
+      encodeLength(uriBuf.length),
       uriBuf,
     ]);
 

@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { parseUnits, formatUnits } from 'viem';
 import { QuoteRepository } from '../../database/repositories/quote.repository';
 import { PrismaService } from '../../database/prisma.service';
 import { getPlatformConfig } from '../../config/platforms.config';
@@ -33,21 +34,25 @@ export class QuoteService {
       },
     });
 
-    const baseFee = parseFloat(platformConfig.creationFeeNative);
-    const devBuy = dto.devBuyAmount ? parseFloat(dto.devBuyAmount) : 0;
-    
-    // Gas estimations based on chain type
-    let estimatedGas = 0.001; // default ETH/BNB
+    const decimals = chainConfig.nativeCurrency.decimals;
+
+    // Convert everything to BigInt (Wei / base units)
+    const baseFeeWei = parseUnits(platformConfig.creationFeeNative, decimals);
+    const devBuyWei = dto.devBuyAmount ? parseUnits(dto.devBuyAmount, decimals) : 0n;
+
+    let estimatedGasWei = parseUnits('0.001', decimals);
     if (chainConfig.type === 'SOLANA') {
-      estimatedGas = 0.005; // SOL priority + rent
+      estimatedGasWei = parseUnits('0.005', decimals);
     } else if (dto.targetChain === 'BASE') {
-      estimatedGas = 0.0005; // Base L2 gas is cheaper
+      estimatedGasWei = parseUnits('0.0005', decimals);
     }
 
-    const markupPercent = Number(process.env.FEE_MARKUP_PERCENT || 5.0) / 100;
-    const subtotal = baseFee + devBuy;
-    const markup = subtotal * markupPercent;
-    const totalRequired = baseFee + devBuy + estimatedGas + markup;
+    const subtotalWei = baseFeeWei + devBuyWei;
+    // Markup calculation (e.g. 5%) using BigInt math (multiply by 5, divide by 100)
+    const markupPercent = BigInt(Math.floor(Number(process.env.FEE_MARKUP_PERCENT || 5.0)));
+    const markupWei = (subtotalWei * markupPercent) / 100n;
+
+    const totalRequiredWei = subtotalWei + estimatedGasWei + markupWei;
 
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins expiry
 
@@ -55,11 +60,11 @@ export class QuoteService {
       user: { connect: { id: user.id } },
       targetChain: dto.targetChain,
       targetPlatform: dto.targetPlatform,
-      baseFeeAmount: baseFee.toFixed(6),
-      gasFeeEst: estimatedGas.toFixed(6),
-      devBuyAmount: devBuy.toFixed(6),
-      markupAmount: markup.toFixed(6),
-      totalAmount: totalRequired.toFixed(6),
+      baseFeeAmount: formatUnits(baseFeeWei, decimals),
+      gasFeeEst: formatUnits(estimatedGasWei, decimals),
+      devBuyAmount: formatUnits(devBuyWei, decimals),
+      markupAmount: formatUnits(markupWei, decimals),
+      totalAmount: formatUnits(totalRequiredWei, decimals),
       currency: chainConfig.nativeCurrency.symbol,
       expiresAt,
     });
@@ -69,12 +74,13 @@ export class QuoteService {
       targetChain: dto.targetChain,
       targetPlatform: dto.targetPlatform,
       currency: chainConfig.nativeCurrency.symbol,
-      baseFee: baseFee.toFixed(6),
-      estimatedGasFee: estimatedGas.toFixed(6),
-      devBuyAmount: devBuy.toFixed(6),
-      markupAmount: markup.toFixed(6),
-      totalRequired: totalRequired.toFixed(6),
+      baseFee: formatUnits(baseFeeWei, decimals),
+      estimatedGasFee: formatUnits(estimatedGasWei, decimals),
+      devBuyAmount: formatUnits(devBuyWei, decimals),
+      markupAmount: formatUnits(markupWei, decimals),
+      totalRequired: formatUnits(totalRequiredWei, decimals),
       expiresAt: expiresAt.toISOString(),
     };
   }
 }
+

@@ -64,12 +64,24 @@ export class EvmSignerService {
         ? params.customNonce
         : await publicClient.getTransactionCount({ address: this.account.address });
 
-    const baseGasPrice = await publicClient.getGasPrice();
-    const bump = params.bumpFactor || 1.15; // 15% escalation
-    const bumpedGasPrice = BigInt(Math.floor(Number(baseGasPrice) * bump));
+    // Fetch current fee data (EIP-1559)
+    const feeData = await publicClient.estimateFeesPerGas();
+    const bump = params.bumpFactor || 1.15;
+
+    let maxFeePerGas: bigint | undefined;
+    let maxPriorityFeePerGas: bigint | undefined;
+    let gasPrice: bigint | undefined;
+
+    if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
+      maxFeePerGas = BigInt(Math.floor(Number(feeData.maxFeePerGas) * bump));
+      maxPriorityFeePerGas = BigInt(Math.floor(Number(feeData.maxPriorityFeePerGas) * bump));
+    } else {
+      const baseGasPrice = feeData.gasPrice || (await publicClient.getGasPrice());
+      gasPrice = BigInt(Math.floor(Number(baseGasPrice) * bump));
+    }
 
     this.logger.log(
-      `Dispatching EVM tx on ${params.chainKey} to ${params.to} (Nonce: ${nonce}, Gas: ${bumpedGasPrice})`,
+      `Dispatching EVM tx on ${params.chainKey} to ${params.to} (Nonce: ${nonce}, maxFee: ${maxFeePerGas}, priorityFee: ${maxPriorityFeePerGas})`,
     );
 
     const hash = await walletClient.sendTransaction({
@@ -78,13 +90,17 @@ export class EvmSignerService {
       data: params.data,
       value: params.value ?? 0n,
       nonce,
-      gasPrice: bumpedGasPrice,
+      ...(maxFeePerGas ? { maxFeePerGas, maxPriorityFeePerGas } : { gasPrice }),
     });
+
+    const effectiveGasGwei = (
+      Number(maxFeePerGas || gasPrice || 0n) / 1e9
+    ).toFixed(2);
 
     return {
       hash,
       nonce,
-      gasPriceGwei: (Number(bumpedGasPrice) / 1e9).toFixed(2),
+      gasPriceGwei: effectiveGasGwei,
     };
   }
 

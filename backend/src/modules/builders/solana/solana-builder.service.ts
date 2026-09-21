@@ -1,5 +1,6 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import bs58 from 'bs58';
 import { PumpPortalClient } from './pump-portal.client';
 import { StonkFunBuilder } from './stonk-fun.builder';
 import { SolanaUtil } from '../../../common/utils/solana.util';
@@ -39,7 +40,7 @@ export class SolanaBuilderService {
             symbol: request.symbol,
             uri: request.metadataUri,
           },
-          mint: mintKeypair.publicKey.toBase58(),
+          mint: bs58.encode(mintKeypair.secretKey),
           denominatedInSol: 'true',
           amount: devBuy,
           slippage: 10,
