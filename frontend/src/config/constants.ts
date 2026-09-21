@@ -54,3 +54,32 @@ export const erc20Abi = [
     stateMutability: 'view',
   },
 ] as const;
+
+export const BASE_ESCROW_CONTRACT_ADDRESS = (process.env
+  .NEXT_PUBLIC_BASE_ESCROW_CONTRACT ||
+  '0x2222222222222222222222222222222222222222') as `0x${string}`;
+
+export const multiLaunchEscrowAbi = [
+  {
+    type: 'function',
+    name: 'payForLaunch',
+    inputs: [
+      { name: 'quoteId', type: 'string' },
+      { name: 'user', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [],
+    stateMutability: 'nonpayable',
+  },
+  {
+    type: 'event',
+    name: 'LaunchPaymentReceived',
+    inputs: [
+      { name: 'quoteId', type: 'string', indexed: false },
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'amount', type: 'uint256', indexed: false },
+    ],
+    anonymous: false,
+  },
+] as const;
+

@@ -34,18 +34,22 @@ export class CreateLaunchDto {
   devBuyAmount?: string;
 
   @IsString()
-  @IsNotEmpty()
-  intentSignature: `0x${string}`;
+  @IsOptional()
+  userSolanaAddress?: string;
+
+  @IsString()
+  @IsOptional()
+  intentSignature?: `0x${string}`;
 
   @IsNumberString()
-  @IsNotEmpty()
-  maxSpendAmount: string;
+  @IsOptional()
+  maxSpendAmount?: string;
 
   @IsNumberString()
-  @IsNotEmpty()
-  nonce: string;
+  @IsOptional()
+  nonce?: string;
 
   @IsNumberString()
-  @IsNotEmpty()
-  deadline: string;
+  @IsOptional()
+  deadline?: string;
 }

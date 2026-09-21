@@ -30,6 +30,20 @@ export class LaunchRepository {
     });
   }
 
+  async findByQuoteId(quoteId: string) {
+    return this.prisma.launchRequest.findFirst({
+      where: { quoteId },
+      include: {
+        user: true,
+        quote: true,
+        deployedToken: true,
+        relayerTxs: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+  }
+
   async updateStatus(id: string, status: LaunchStatus, errorMessage?: string) {
     return this.prisma.launchRequest.update({
       where: { id },

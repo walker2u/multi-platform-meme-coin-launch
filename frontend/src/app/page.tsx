@@ -23,7 +23,7 @@ export default function HomePage() {
         </h1>
 
         <p className="mt-6 text-base sm:text-lg text-slate-400 max-w-2xl leading-relaxed">
-          Deploy on <strong>Pump.fun (Solana)</strong>, <strong>Four.meme (BNB)</strong>, and <strong>Base</strong> without holding native gas tokens. One EIP-712 signature handles metadata pinning, contract deployment, and initial snipe buys.
+          Deploy on <strong>Pump.fun (Solana)</strong>, <strong>Four.meme (BNB)</strong>, and <strong>Base</strong> without holding native gas tokens. Pay from any EVM chain via LI.FI bridge and swap into Base USDC Escrow to trigger automated cross-chain relayer deployments.
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">

@@ -5,7 +5,7 @@ import { useAccount } from 'wagmi';
 import { TargetPlatform, TokenFormData } from '@/types/launch';
 import { getPlatformById } from '@/config/platforms';
 import { useQuote } from '@/hooks/useQuote';
-import { useLaunchIntent } from '@/hooks/useLaunchIntent';
+import { useCrossChainPayment } from '@/hooks/useCrossChainPayment';
 import { ConnectWallet } from '@/components/launch/ConnectWallet';
 import { PlatformSelector } from '@/components/launch/PlatformSelector';
 import { TokenDetailsForm } from '@/components/launch/TokenDetailsForm';
@@ -14,10 +14,10 @@ import { ProgressModal } from '@/components/launch/ProgressModal';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { isValidSolanaAddress } from '@/lib/solana';
-import { Rocket, ShieldAlert } from 'lucide-react';
+import { Rocket, ShieldAlert, Sparkles } from 'lucide-react';
 
 export default function LaunchTerminalPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chain } = useAccount();
 
   // Form State
   const [selectedPlatform, setSelectedPlatform] =
@@ -51,7 +51,8 @@ export default function LaunchTerminalPage() {
     devBuyAmount: formData.devBuyAmount || undefined,
   });
 
-  const { executeLaunch, isExecuting, currentStep } = useLaunchIntent();
+  const { executeLaunchPayment, isProcessing, paymentStep } =
+    useCrossChainPayment();
 
   const handleFormDataChange = (fields: Partial<TokenFormData>) => {
     setFormData((prev) => ({ ...prev, ...fields }));
@@ -62,7 +63,7 @@ export default function LaunchTerminalPage() {
     setFormError(null);
 
     if (!isConnected || !address) {
-      setFormError('Please connect your EVM wallet first.');
+      setFormError('Please connect your wallet first.');
       return;
     }
 
@@ -82,14 +83,20 @@ export default function LaunchTerminalPage() {
     }
 
     try {
-      const launchResult = await executeLaunch(quote, formData, solanaAddress);
+      const launchResult = await executeLaunchPayment(
+        quote,
+        formData,
+        solanaAddress,
+      );
       setActiveLaunchId(launchResult.launchId);
       setShowProgressModal(true);
     } catch (err) {
-      console.error('Launch submission error:', err);
-      setFormError((err as Error).message || 'Failed to submit launch intent.');
+      console.error('Launch payment execution error:', err);
+      setFormError((err as Error).message || 'Failed to execute launch payment.');
     }
   };
+
+  const isCrossChain = chain && chain.id !== 8453;
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10 flex flex-col gap-8">
@@ -100,9 +107,24 @@ export default function LaunchTerminalPage() {
           Multiplatform Meme Token Terminal
         </h1>
         <p className="text-xs sm:text-sm text-slate-400">
-          Configure metadata and deploy cross-chain in a single atomic transaction paying USDC on Base.
+          Cross-chain Cash Register: Pay from any EVM chain via LI.FI bridge/swap or directly on Base.
         </p>
       </div>
+
+      {/* Payment Routing Notice */}
+      {isConnected && (
+        <div className="flex items-center justify-between p-3.5 rounded-2xl bg-surface-light border border-white/10 text-xs">
+          <div className="flex items-center gap-2 text-slate-300">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span>
+              Connected Network: <strong className="text-white">{chain?.name || 'Unknown'}</strong>
+            </span>
+          </div>
+          <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-primary/10 text-primary border border-primary/20">
+            {isCrossChain ? 'Cross-Chain LI.FI Bridge Routing Active' : 'Direct Base Escrow Settlement'}
+          </span>
+        </div>
+      )}
 
       {/* Main Form Container */}
       <Card className="flex flex-col gap-8">
@@ -141,15 +163,17 @@ export default function LaunchTerminalPage() {
           variant="gradient"
           size="lg"
           onClick={handleLaunch}
-          isLoading={isExecuting}
+          isLoading={isProcessing}
           disabled={!isConnected || isQuoteLoading}
           className="w-full text-base py-4 font-bold shadow-2xl shadow-indigo-500/30"
         >
-          {isExecuting
-            ? `Processing (${currentStep})...`
+          {isProcessing
+            ? `Processing (${paymentStep})...`
             : isConnected
-            ? `Sign & Launch on ${selectedPlatform}`
-            : 'Connect EVM Wallet to Launch'}
+            ? isCrossChain
+              ? `Bridge & Launch on ${selectedPlatform} (LI.FI)`
+              : `Pay & Launch on ${selectedPlatform} (Base Escrow)`
+            : 'Connect Wallet to Launch'}
         </Button>
       </Card>
 

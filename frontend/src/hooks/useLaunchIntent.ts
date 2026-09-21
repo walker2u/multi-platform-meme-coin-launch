@@ -1,18 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { useSignTypedData, useAccount } from 'wagmi';
+import { useSignTypedData, useAccount, useSwitchChain } from 'wagmi';
 import { parseUnits } from 'viem';
 import { LAUNCH_DOMAIN, INTENT_TYPES } from '@/config/constants';
 import { apiClient } from '@/lib/apiClient';
-import { usePermit2 } from './usePermit2';
-import { QuoteData, UploadMetadataResponse, LaunchResponseData } from '@/types/api';
+import { useUsdcAllowance } from './useUsdcAllowance';
+import { QuoteData, LaunchResponseData } from '@/types/api';
 import { TokenFormData } from '@/types/launch';
 
 export function useLaunchIntent() {
   const { signTypedDataAsync } = useSignTypedData();
-  const { address } = useAccount();
-  const { checkAndApproveUsdc } = usePermit2();
+  const { address, chain } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+  const { checkAndApproveUsdc } = useUsdcAllowance();
   const [isExecuting, setIsExecuting] = useState(false);
   const [currentStep, setCurrentStep] = useState<string>('idle');
 
@@ -27,35 +28,51 @@ export function useLaunchIntent() {
 
     try {
       setIsExecuting(true);
-      setCurrentStep('PREPARING_METADATA');
 
-      // 1. Upload Metadata to IPFS
-      let metadataUri = 'ipfs://bafkreia5...';
-      const metadataPayload = {
-        name: tokenDetails.name,
-        symbol: tokenDetails.symbol,
-        description: tokenDetails.description,
-        image: tokenDetails.imagePreviewUrl || 'https://placehold.co/400x400/png',
-        twitter: tokenDetails.twitter,
-        telegram: tokenDetails.telegram,
-        website: tokenDetails.website,
-      };
-
-      try {
-        const uploadRes: any = await apiClient.post('/storage/upload', metadataPayload);
-        if (uploadRes?.data?.metadataUri) {
-          metadataUri = uploadRes.data.metadataUri;
+      // 1. Enforce Base Network Connection for EIP-712 Intent and USDC Settlement
+      if (chain?.id !== 8453) {
+        setCurrentStep('SWITCHING_NETWORK');
+        if (switchChainAsync) {
+          await switchChainAsync({ chainId: 8453 });
         }
-      } catch (err) {
-        console.warn('Metadata upload error, continuing with fallback:', err);
       }
 
-      // 2. Check & Approve USDC Allowance on Base
+      // 2. Upload Image File and Metadata to IPFS via multipart/form-data
+      setCurrentStep('PREPARING_METADATA');
+      let metadataUri = 'ipfs://fallback';
+
+      if (tokenDetails.imageFile) {
+        const formData = new FormData();
+        formData.append('file', tokenDetails.imageFile);
+        formData.append('name', tokenDetails.name);
+        formData.append('symbol', tokenDetails.symbol);
+        formData.append('description', tokenDetails.description);
+        if (tokenDetails.twitter) formData.append('twitter', tokenDetails.twitter);
+        if (tokenDetails.telegram) formData.append('telegram', tokenDetails.telegram);
+        if (tokenDetails.website) formData.append('website', tokenDetails.website);
+
+        try {
+          const uploadRes: any = await apiClient.post('/storage/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+
+          if (uploadRes?.data?.metadataUri) {
+            metadataUri = uploadRes.data.metadataUri;
+          }
+        } catch (err) {
+          console.error('Metadata upload failed:', err);
+          throw new Error('Failed to upload token assets to IPFS. Please try again.');
+        }
+      } else {
+        throw new Error('Token image is required.');
+      }
+
+      // 3. Check & Approve USDC Allowance on Base
       setCurrentStep('CHECKING_ALLOWANCE');
       const maxSpendWei = parseUnits(quoteData.totalRequired, 6);
       await checkAndApproveUsdc(maxSpendWei);
 
-      // 3. Prepare and Sign EIP-712 Intent
+      // 4. Prepare and Sign EIP-712 Intent on Base
       setCurrentStep('SIGNING_INTENT');
       const nonce = BigInt(Date.now());
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 900); // 15 mins
@@ -78,7 +95,7 @@ export function useLaunchIntent() {
         },
       });
 
-      // 4. Submit Launch Intent to Backend
+      // 5. Submit Launch Intent to Backend
       setCurrentStep('SUBMITTING_LAUNCH');
       const launchResponse: any = await apiClient.post('/launch', {
         walletAddress: address,

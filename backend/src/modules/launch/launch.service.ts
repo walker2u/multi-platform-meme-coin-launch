@@ -37,67 +37,96 @@ export class LaunchService {
   async createLaunch(dto: CreateLaunchDto): Promise<LaunchStatusDto> {
     this.logger.log(`Initiating launch process for ${dto.tokenName} (${dto.tokenSymbol})`);
 
-    // 1. Verify EIP-712 Intent
-    const verification = await this.intentService.verifyIntent({
-      walletAddress: dto.walletAddress as `0x${string}`,
-      quoteId: dto.quoteId,
-      signature: dto.intentSignature,
-      targetChain: dto.targetChain,
-      targetPlatform: dto.targetPlatform,
-      tokenName: dto.tokenName,
-      tokenSymbol: dto.tokenSymbol,
-      metadataUri: dto.metadataUri,
-      maxSpendAmount: dto.maxSpendAmount,
-      nonce: dto.nonce,
-      deadline: dto.deadline,
-    });
-
-    if (!verification.valid) {
-      throw new BadRequestException(`Intent verification failed: ${verification.error}`);
-    }
-
     const chainConfig = getChainConfig(dto.targetChain);
 
-    // 2. Persist LaunchRequest record
-    const launch = await this.launchRepo.create({
-      user: {
-        connectOrCreate: {
-          where: { walletAddress: dto.walletAddress.toLowerCase() },
-          create: {
-            walletAddress: dto.walletAddress.toLowerCase(),
-            chainType: chainConfig.type,
+    // 1. Verify EIP-712 Intent if signature was provided (direct intent mode)
+    let isDirectIntent = false;
+    if (dto.intentSignature && dto.maxSpendAmount && dto.nonce && dto.deadline) {
+      const verification = await this.intentService.verifyIntent({
+        walletAddress: dto.walletAddress as `0x${string}`,
+        quoteId: dto.quoteId,
+        signature: dto.intentSignature,
+        targetChain: dto.targetChain,
+        targetPlatform: dto.targetPlatform,
+        tokenName: dto.tokenName,
+        tokenSymbol: dto.tokenSymbol,
+        metadataUri: dto.metadataUri,
+        maxSpendAmount: dto.maxSpendAmount,
+        nonce: dto.nonce,
+        deadline: dto.deadline,
+      });
+
+      if (!verification.valid) {
+        throw new BadRequestException(`Intent verification failed: ${verification.error}`);
+      }
+      isDirectIntent = true;
+    }
+
+    // 2. Persist or update LaunchRequest record
+    let launch = await this.launchRepo.findByQuoteId(dto.quoteId);
+    if (!launch) {
+      launch = await this.launchRepo.create({
+        user: {
+          connectOrCreate: {
+            where: { walletAddress: dto.walletAddress.toLowerCase() },
+            create: {
+              walletAddress: dto.walletAddress.toLowerCase(),
+              chainType: chainConfig.type,
+            },
           },
         },
-      },
-      quote: {
-        connect: { id: dto.quoteId },
-      },
-      targetChain: dto.targetChain,
-      targetPlatform: dto.targetPlatform,
-      tokenName: dto.tokenName,
-      tokenSymbol: dto.tokenSymbol,
-      metadataUri: dto.metadataUri,
-      devBuyAmount: dto.devBuyAmount,
-      intentSignature: dto.intentSignature,
-      status: LaunchStatus.QUEUED,
-    });
-
-    this.wsGateway.broadcastLaunchUpdate(launch.id, {
-      launchId: launch.id,
-      status: LaunchStatus.QUEUED,
-      step: 'INTENT_VERIFIED',
-      message: 'Launch intent validated successfully. Enqueueing relayer job.',
-    });
-
-    // 3. Dispatch to Queue
-    if (chainConfig.type === 'EVM') {
-      const buildResult = await this.buildersService.buildLaunch({
-        chain: dto.targetChain,
-        platform: dto.targetPlatform,
+        quote: {
+          connect: { id: dto.quoteId },
+        },
+        targetChain: dto.targetChain,
+        targetPlatform: dto.targetPlatform,
         tokenName: dto.tokenName,
         tokenSymbol: dto.tokenSymbol,
         metadataUri: dto.metadataUri,
         devBuyAmount: dto.devBuyAmount,
+        intentSignature: dto.intentSignature || null,
+        status: isDirectIntent ? LaunchStatus.QUEUED : LaunchStatus.PENDING,
+      });
+    }
+
+    if (isDirectIntent) {
+      this.wsGateway.broadcastLaunchUpdate(launch.id, {
+        launchId: launch.id,
+        status: LaunchStatus.QUEUED,
+        step: 'INTENT_VERIFIED',
+        message: 'Launch intent validated successfully. Enqueueing relayer job.',
+      });
+
+      await this.dispatchToRelayers(launch);
+    } else {
+      this.wsGateway.broadcastLaunchUpdate(launch.id, {
+        launchId: launch.id,
+        status: LaunchStatus.PENDING,
+        step: 'AWAITING_PAYMENT',
+        message: 'Launch registered. Awaiting USDC payment on Base Escrow.',
+      });
+    }
+
+    return this.mapToStatusDto(launch);
+  }
+
+  /**
+   * Dispatches queued launch jobs to BullMQ relayer workers once payment is confirmed.
+   */
+  async dispatchToRelayers(launch: any): Promise<void> {
+    const chainConfig = getChainConfig(launch.targetChain);
+    await this.launchRepo.updateStatus(launch.id, LaunchStatus.QUEUED);
+
+    this.logger.log(`Dispatching launch ${launch.id} to ${chainConfig.type} relayer queue`);
+
+    if (chainConfig.type === 'EVM') {
+      const buildResult = await this.buildersService.buildLaunch({
+        chain: launch.targetChain,
+        platform: launch.targetPlatform,
+        tokenName: launch.tokenName,
+        tokenSymbol: launch.tokenSymbol,
+        metadataUri: launch.metadataUri,
+        devBuyAmount: launch.devBuyAmount || undefined,
       });
 
       if (!buildResult.evmResult) {
@@ -106,24 +135,24 @@ export class LaunchService {
 
       await this.evmQueue.add('execute-evm-launch', {
         launchRequestId: launch.id,
-        chain: dto.targetChain,
-        platform: dto.targetPlatform,
+        chain: launch.targetChain,
+        platform: launch.targetPlatform,
         to: buildResult.evmResult.to,
         calldata: buildResult.evmResult.calldata,
         valueNativeWei: buildResult.evmResult.valueWei,
-        userAddress: dto.walletAddress as `0x${string}`,
+        userAddress: launch.user?.walletAddress || launch.userAddress,
       });
 
       this.logger.log(`EVM launch job enqueued for ${launch.id}`);
     } else if (chainConfig.type === 'SOLANA') {
       const relayerPublicKey = this.solanaSigner.getPublicKey().toBase58();
       const buildResult = await this.buildersService.buildLaunch({
-        chain: dto.targetChain,
-        platform: dto.targetPlatform,
-        tokenName: dto.tokenName,
-        tokenSymbol: dto.tokenSymbol,
-        metadataUri: dto.metadataUri,
-        devBuyAmount: dto.devBuyAmount,
+        chain: launch.targetChain,
+        platform: launch.targetPlatform,
+        tokenName: launch.tokenName,
+        tokenSymbol: launch.tokenSymbol,
+        metadataUri: launch.metadataUri,
+        devBuyAmount: launch.devBuyAmount || undefined,
         relayerPublicKey,
       });
 
@@ -133,19 +162,17 @@ export class LaunchService {
 
       await this.solanaQueue.add('execute-solana-launch', {
         launchRequestId: launch.id,
-        platform: dto.targetPlatform,
+        platform: launch.targetPlatform,
         serializedTxBase64: buildResult.solanaResult.serializedTransaction
           ? buildResult.solanaResult.serializedTransaction.toString('base64')
           : undefined,
         mintSecretKey: JSON.stringify(Array.from(buildResult.solanaResult.mintKeypair.secretKey)),
-        devBuySolAmount: dto.devBuyAmount ? parseFloat(dto.devBuyAmount) : 0,
-        userWallet: dto.walletAddress,
+        devBuySolAmount: launch.devBuyAmount ? parseFloat(launch.devBuyAmount) : 0,
+        userWallet: launch.user?.walletAddress || launch.userAddress,
       });
 
       this.logger.log(`Solana launch job enqueued for ${launch.id}`);
     }
-
-    return this.mapToStatusDto(launch);
   }
 
   async getLaunchStatus(id: string): Promise<LaunchStatusDto> {

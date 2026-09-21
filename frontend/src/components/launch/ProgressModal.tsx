@@ -34,9 +34,9 @@ export function ProgressModal({
 
   const steps = [
     {
-      id: 'QUEUED',
-      label: 'Verifying Intent & Funds',
-      desc: 'Checking EIP-712 signature & settling escrow on Base',
+      id: 'PAYMENT',
+      label: 'Base Escrow Settlement',
+      desc: 'USDC received by Cash Register contract on Base',
     },
     {
       id: 'SUBMITTED',
@@ -53,12 +53,13 @@ export function ProgressModal({
   const getStepStatus = (stepId: string) => {
     if (status === 'FAILED') return 'failed';
     if (status === 'CONFIRMED') return 'completed';
-    if (stepId === 'QUEUED') {
-      return status === 'QUEUED' ? 'active' : 'completed';
+    if (stepId === 'PAYMENT') {
+      if (status === 'PENDING') return 'active';
+      return 'completed';
     }
     if (stepId === 'SUBMITTED') {
-      if (status === 'QUEUED') return 'pending';
-      return status === 'SUBMITTED' ? 'active' : 'completed';
+      if (status === 'PENDING') return 'pending';
+      return status === 'SUBMITTED' || status === 'QUEUED' ? 'active' : 'completed';
     }
     if (stepId === 'CONFIRMED') {
       return status === 'CONFIRMED' ? 'completed' : 'pending';
